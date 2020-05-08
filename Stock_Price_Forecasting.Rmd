@@ -1,0 +1,379 @@
+---
+title: "Time Series Analysis and Forecasting of S&P 500"
+author: "Plash Monga"
+date: "5/6/2020"
+output:
+  html_document:
+    code_folding: hide
+    df_print: paged
+---
+
+<style>
+body {
+text-align: justify}
+</style>  
+---
+
+The S&P 500 index is a stock market index that measures the stock performance of 500 large companies listed on United States stock exchanges. It is one of the most commonly followed equity index and is considered by many experts as best representation of US stock market. 
+We have used the data from [Yahoo Finance](https://finance.yahoo.com/quote/%5EGSPC/history?p=%5EGSPC) website. The data is pulled for past five years ending 5th May 2020.
+
+
+For practical use, developed shiny app using this analysis. This app can be accessed through [R Shiny](https://plashmonga.shinyapps.io/Stock_Price_Prediction/)
+
+# {.tabset .tabset-fade}
+
+## Introduction
+
+<top>
+<img src="C:/Users/plash/Desktop/A.jpg"  style="float:centre;margin:0 50px 50px 0">
+</top>
+
+
+Through our project we will identify the nature S&P 500 index, in a way identifying the nature of the US stock market. Our goal is to predict the future of S&P 500 index based on the previous data.
+
+```{r, results='hide', message=FALSE, warning=FALSE}
+library(tidyverse)
+library(quantmod)
+library(forecast)
+library(tseries)
+library(timeSeries)
+library(fGarch)
+library(urca)
+library(plotly)
+
+# Stock Prices over last 5 years
+snp <- as.data.frame(getSymbols("^GSPC", src="yahoo", from = "2015-01-01", env = NULL))
+```
+
+__DATA:__
+
+```{r}
+head(snp)
+tail(snp)
+colnames(snp)
+count(snp)
+```
+
+The dataset consist of 7 columns
+
+```{r}
+sum(snp$Close != snp$`Adj Close`)
+sum(snp$Close == snp$`Adj Close`)
+str(snp)
+summary(snp)
+```
+
+* `Open`, `High`, `Low` and `Close` represents opening value, highest value, lowest value and closing value of the stock on the given `Date`. The `close` and `adj close` columns are excatly the same. 
+* We will be only using closing value of each date as it captures the performance of stock better than all other values. We won't be using volumne of stocks traded in our analysis.
+
+## Time series Analysis
+
+Now we will first convert the closing value of S&P 500 index into univariate time series and then will look into the nature of it. 
+
+__The recent dip in the S&P 500 index is due to COVID-19__
+
+```{r}
+# Converting it into univariate time series
+snp_ts <- ts(snp$GSPC.Close)
+plot.ts(snp_ts)
+```
+
+* First we conduct an __ADF test__ for the close price set to check data stationarity
+* As p value is less than 0.5, we can reject the null hypothesis and the data is stationary
+
+```{r}
+#print(adf.test(snp_ts))
+#adf.test(snp_ts, k = 1)
+#adf.test(snp_ts, k = 2)
+#adf.test(snp_ts, k = 3)
+adf.test(snp_ts)
+```
+
+ADF suggests that the time series is stationary. But from previous plot we can see a trend in the time series. Let's KPSS test to check the stationarity. 
+
+```{r}
+test <- ur.kpss(snp_ts)
+summary(test)
+```
+
+__KPSS test:__
+
+The KPSS test suggests that we can reject the null hypothesis and conclude that the time series is not stationary. 
+
+Let's try first order differencing to check whether the series is stationary or not. 
+
+```{r}
+plot.ts(diff(snp_ts))
+```
+
+```{r}
+adf.test(diff(snp_ts))
+```
+
+```{r}
+summary(ur.kpss(diff(snp_ts)))
+```
+
+This time in KPSS test we cannot reject the null hypothesis and hence can conclude that the time series is statioanry
+
+Now lets, check the ACF and PACF of the differenced time series.
+
+```{r}
+acf(diff(snp_ts), lag.max = 15)
+```
+
+```{r}
+pacf(diff(snp_ts), lag.max = 15)
+```
+
+We are not able to see any clear pattern in ACF and PACF. We also tried higher order differencing but still same results.
+What we can see is first cut off for ACF is lag = 2 and that of PACF is lag = 4. Therefore the model which we fit is ARIMA(4,1,2)
+
+__Auto Arima:__
+
+Lets verify our finding with `Auto.Arima()`.
+
+* Using autoarima function, gives the model ARIMA(5,1,2) which is pretty close to our model 
+
+```{r}
+#We apply auto arima to the dataset 
+modelfit <- auto.arima(snp_ts, lambda = "auto")
+modelfit
+```
+
+Now we will try fitting different models like ARIMA(4,1,2), ARIMA(5,1,2), ARIMA(4,2,2), ARIMA(5,2,2) and ARIMA(9,1,2). We are trying last model because we can see that PACF starts increasing after lag 6 and then cut off at lag 9. 
+
+```{r}
+fit1 <- arima(snp_ts,order=c(4,1,2))
+fit2 <- arima(snp_ts,order=c(5,1,2))
+fit3 <- arima(snp_ts,order=c(4,2,2))
+fit4 <- arima(snp_ts,order=c(5,2,2))
+fit5 <- arima(snp_ts,order=c(9,1,2))
+```
+
+__Summary for ARIMA(4,1,2)__
+
+```{r}
+summary(fit1)
+BIC(fit1)
+```
+
+
+__Summary for ARIMA(5,1,2)__
+
+```{r}
+#Summary Summary for ARIMA(5,1,2)
+summary(fit2)
+BIC(fit2)
+```
+
+__Summary for ARIMA(4,2,2)__
+```{r}
+##Summary for ARIMA(4,2,2)
+
+summary(fit3)
+BIC(fit3)
+```
+
+__Summary for ARIMA(5,2,2)__
+```{r}
+## Summary for ARIMA(5,2,2)
+summary(fit4)
+BIC(fit4)
+```
+
+__Summary for ARIMA(9,1,2)__
+```{r}
+#Summary for ARIMA(9,1,2)
+summary(fit5)
+BIC(fit5)
+```
+
+
+## Model
+
+__Final Model:__
+
+* From above summaries we can see that ARIMA(5,1,2) and ARIMA(9,1,2) gives lowest AIC and lowest BIC respectively.
+
+Fitting Model suggested by ARIMA and its residual diagnostics:
+```{r}
+fit_full_data <- Arima(snp_ts, order = c(5,1,2), include.drift = FALSE)
+summary(fit_full_data)
+```
+
+__Residual Diagnostics:__
+
+```{r}
+# Residual Diagnostic:
+plot(fit_full_data$residuals)
+acf(fit_full_data$residuals,ylim=c(-1,1))
+pacf(fit_full_data$residuals,ylim=c(-1,1))
+checkresiduals(fit_full_data)
+```
+
+The residual diagnostics suggest that the model is not a good fit.
+
+
+__Fitting model on data before 2020__
+
+If we see the plot of our time series there is lot of variation recently because of coronavirus. We will try modelling the time series after removing recent variation to see if we get any consistent results. 
+
+```{r}
+snp_2 <- as.data.frame(getSymbols("^GSPC", src="yahoo", from = "2015-01-01", to = "2019-12-31", env = NULL))
+snp_ts_2 <- as.ts(snp_2$GSPC.Close)
+plot.ts(snp_ts_2)
+```
+
+We can see that the recent variation is removed.
+
+Let's repeat above steps to see if we can arrive at a better and consitent model. 
+
+```{r}
+adf.test(snp_ts_2)
+```
+
+```{r}
+summary(ur.kpss(snp_ts_2))
+```
+
+The time series is not stationary as suggested by both the models.
+
+Let's take first order difference and see the results.
+
+```{r}
+adf.test(diff(snp_ts_2))
+```
+
+```{r}
+summary(ur.kpss(diff(snp_ts_2)))
+```
+
+Now both the tests are suggesting stationarity.
+
+Let's plot ACF and PACF:
+
+```{r}
+acf(diff(snp_ts_2), lag.max = 15)
+```
+
+```{r}
+pacf(diff(snp_ts_2), lag.max = 20)
+```
+
+The results are surprising as we seeing cut off of ACF at lag 0 and the PACF is not significant almost like whitenoise.
+
+__The model suited for such situation is ARIMA(0,1,0)__
+
+Let's see the recommendation of `Auto.Arima()` function. 
+```{r}
+modelfit <- auto.arima(snp_ts_2, lambda = "auto")
+modelfit
+```
+
+* `Auto.Arima()` suggests drift which can't be seen form the ACF and PACF plots, hence now we will try to fit ARIMA(2,1,0), ARIMA(2,1,1) and ARIMA(3,1,0) and see which model performs better.
+
+```{r}
+fit1 <- Arima(snp_ts_2, order = c(2,1,0), include.drift = TRUE)
+fit2 <- Arima(snp_ts_2, order = c(2,1,1), include.drift = TRUE)
+fit3 <- Arima(snp_ts_2, order = c(3,1,0), include.drift = TRUE)
+```
+
+Summary for __ARIMA(2,1,0)__ with drift
+
+```{r}
+summary(fit1)
+BIC(fit1)
+```
+
+Summary for __ARIMA(2,1,1)__ with drift
+```{r}
+summary(fit2)
+BIC(fit2)
+```
+
+Summary for __ARIMA(3,1,0)__ with drift
+```{r}
+summary(fit3)
+BIC(fit3)
+```
+
+Our main focus is on prediction accuracy hence we will choose fit1 model as our final model as it has lowest BIC value. 
+
+Now let's move ahead to model and residual diagnostics:
+```{r}
+fit <- Arima(snp_ts_2, order = c(2,1,0), include.drift = TRUE)
+```
+
+## Results
+
+__Model Summary:__
+```{r}
+summary(fit)
+```
+
+
+```{r}
+# Residual Diagnostic:
+plot(fit$residuals)
+acf(fit$residuals,ylim=c(-1,1))
+pacf(fit$residuals,ylim=c(-1,1))
+checkresiduals(fit)
+```
+
+
+The residual diagnostics suggests that residual are behaving like white noise which suggests that our model is a good fit.
+
+The RMSE of our model is:
+
+```{r}
+sqrt(mean((fit$fitted - snp_2$GSPC.Close)^2))
+```
+
+Lets see how our actual values till May 5th are as compared to our fitted model.
+
+```{r}
+price_forecast <- forecast(fit, h = 87)
+```
+
+```{r}
+p <- plot_ly() %>% 
+add_lines(x = seq(1,1344,1) , y = snp_ts ,
+color = I("black") ,
+name = "Actual Closing Price",
+marker = list(mode ='lines')) %>%
+add_lines(x = seq(1,1257,1), y = price_forecast$fitted, color = I("blue"), name = "Fitted Values") %>%
+add_lines(x = seq(1258,1344,1), y = price_forecast$mean, color = I("blue"), name = "Forecast Values") %>%
+add_ribbons(x = seq(1258,1344,1),
+ymin = price_forecast$lower[, 2],
+ymax = price_forecast$upper[, 2],
+color = I("gray95"),
+name = "95% confidence") %>%
+add_ribbons(
+x = seq(1258,1344,1),
+ymin = price_forecast$lower[, 1],
+ymax = price_forecast$upper[, 1],
+color = I("gray80"), name = "80% confidence")
+```
+
+```{r}
+p
+```
+
+It can be seen that the difference in actual values and predicted values starts getting more as we start to see the effect of Coronavirus on the S&P 500 stock prices.
+
+__Future Scope__
+
+* Further Text mining techniques can be used to improve stock price prediction
+
+## Rshiny
+
+For practical use, developed shiny app using the above model. This app can be accessed through [R Shiny](https://plashmonga.shinyapps.io/Stock_Price_Prediction/)
+
+* We can predict the stock price by providing a range of days ( 7-180)
+* We can predict for any stock by entering the stock code.
+
+Here is the snapshot of the app:
+
+<img src="C:/Users/plash/Desktop/A.jpg"  style="float:centre;margin:0 50px 50px 0">
+
